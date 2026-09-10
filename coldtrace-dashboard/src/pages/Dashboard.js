@@ -29,7 +29,7 @@ const customIcon = new L.Icon({
   popupAnchor: [1, -34]
 });
 
-const API_BASE = 'http://localhost:5000/api/device';
+const API_BASE = `${process.env.REACT_APP_API_BASE_URL}/api/device`;
 
 const emptyTelemetry = {
   deviceId: '',
