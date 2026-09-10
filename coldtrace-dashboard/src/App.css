@@ -1,0 +1,201 @@
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    font-family:Arial, Helvetica, sans-serif;
+}
+
+body{
+    background:linear-gradient(135deg,#142850,#274690,#3566d6);
+    color:white;
+}
+
+.container{
+    padding:40px;
+    min-height:100vh;
+}
+
+.header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:40px;
+}
+
+.header h1{
+    font-size:60px;
+    display:flex;
+    align-items:center;
+    gap:18px;
+    font-weight:700;
+}
+
+.header p{
+    margin-top:12px;
+    font-size:26px;
+    opacity:.9;
+}
+
+.logo{
+    color:#49b6ff;
+    font-size:60px;
+}
+
+.liveBox{
+    background:rgba(255,255,255,.12);
+    padding:20px 35px;
+    border-radius:20px;
+    backdrop-filter:blur(15px);
+    text-align:center;
+    box-shadow:0 10px 30px rgba(0,0,0,.25);
+}
+
+.liveIndicator{
+    width:16px;
+    height:16px;
+    background:#18ff56;
+    border-radius:50%;
+    margin:auto;
+    margin-bottom:12px;
+    animation:pulse 1.2s infinite;
+}
+
+@keyframes pulse{
+
+    0%{
+        transform:scale(1);
+        opacity:1;
+    }
+
+    50%{
+        transform:scale(1.5);
+        opacity:.4;
+    }
+
+    100%{
+        transform:scale(1);
+        opacity:1;
+    }
+
+}
+
+.liveBox span{
+    display:block;
+    font-size:24px;
+    font-weight:bold;
+}
+
+.liveBox p{
+    margin-top:10px;
+    font-size:18px;
+}
+
+.grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+    gap:28px;
+}
+
+.card{
+
+    background:rgba(255,255,255,.12);
+    backdrop-filter:blur(20px);
+    border-radius:24px;
+
+    padding:28px;
+
+    box-shadow:0 15px 35px rgba(0,0,0,.25);
+
+    transition:.3s;
+
+    min-height:230px;
+
+}
+
+.card:hover{
+
+    transform:translateY(-8px);
+
+}
+
+.icon{
+
+    font-size:40px;
+    margin-bottom:20px;
+
+}
+
+.card h2{
+
+    font-size:28px;
+    font-weight:600;
+    margin-bottom:25px;
+
+}
+
+.card h1{
+
+    font-size:46px;
+    font-weight:bold;
+
+}
+
+.red{
+    color:#ff6b6b;
+}
+
+.green{
+    color:#22d64b;
+}
+
+.orange{
+    color:#ff9b39;
+}
+
+.blue{
+    color:#4ec6ff;
+}
+
+.yellow{
+    color:#ffd43b;
+}
+
+.purple{
+    color:#b55cff;
+}
+
+.wide{
+
+    grid-column:span 2;
+
+}
+
+@media(max-width:900px){
+
+    .header{
+
+        flex-direction:column;
+        align-items:flex-start;
+        gap:25px;
+
+    }
+
+    .wide{
+
+        grid-column:span 1;
+
+    }
+
+    .header h1{
+
+        font-size:44px;
+
+    }
+
+    .header p{
+
+        font-size:22px;
+
+    }
+
+}
