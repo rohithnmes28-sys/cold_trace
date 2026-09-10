@@ -1,417 +1,231 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine
-} from 'recharts';
-import {
+  Activity,
   AlertTriangle,
-  Thermometer,
-  Battery,
-  DoorClosed,
-  DoorOpen,
+  BatteryCharging,
+  Box,
+  CheckCircle,
   Clock,
   MapPin,
-  Plus,
   Phone,
-  User,
+  Plus,
   Radio,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  Thermometer,
+  User,
   X,
-  Square
 } from 'lucide-react';
-import L from 'leaflet';
-import './Dashboard.css';
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
-import markerIconPng from 'leaflet/dist/images/marker-icon.png';
+import LeafletMap from '../components/LeafletMap';
+import {
+  createSession,
+  getDeviceTelemetryHistory,
+  getLiveSessions,
+} from '../services/api';
 
-const customIcon = new L.Icon({
-  iconUrl: markerIconPng,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34]
-});
+const DEFAULT_DEVICE_ID = 'device001';
 
-const API_BASE =
-  `${process.env.REACT_APP_API_BASE_URL}/api/device`;
+export default function Dashboard() {
+  const [activeSessions, setActiveSessions] = useState([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState(DEFAULT_DEVICE_ID);
+  const [telemetryHistory, setTelemetryHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-const emptyTelemetry = {
-  deviceId: '',
-  name: '',
-  number: '',
-  temperature: 0,
-  prediction: -1,
-  latitude: 0,
-  longitude: 0,
-  door: 'Closed',
-  battery: 0,
-  timestamp: new Date().toISOString()
-};
-
-const Dashboard = () => {
-  const [telemetry, setTelemetry] = useState(emptyTelemetry);
-  const [history, setHistory] = useState([]);
-  const [sessions, setSessions] = useState([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState('');
-  const [showSessionModal, setShowSessionModal] = useState(false);
-
-  const [sessionForm, setSessionForm] = useState({
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [newDevice, setNewDevice] = useState({
     deviceId: '',
     name: '',
-    number: ''
+    phone: '',
   });
 
-  const [savingSession, setSavingSession] = useState(false);
-  const [sessionError, setSessionError] = useState('');
-
-  const activeSessions = useMemo(
-    () => sessions.filter((session) => session.active),
-    [sessions]
-  );
-
-  const loadSessions = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     try {
-      const response = await fetch(
-        `${API_BASE}/sessions`,
-        { cache: 'no-store' }
-      );
+      const sessionsData = await getLiveSessions();
+      setActiveSessions(sessionsData || []);
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch sessions');
-      }
-
-      const data = await response.json();
-
-      setSessions(data);
-
-      if (!selectedDeviceId && data.length > 0) {
-        const active = data.find((session) => session.active);
-
-        if (active) {
-          setSelectedDeviceId(active.deviceId);
-        }
-      }
+      const chosenDevice = selectedDeviceId || DEFAULT_DEVICE_ID;
+      const historyData = await getDeviceTelemetryHistory(chosenDevice);
+      setTelemetryHistory(historyData || []);
+      setError(null);
     } catch (err) {
-      console.error(err);
-    }
-  }, [selectedDeviceId]);
-
-  const loadTelemetry = useCallback(async () => {
-    try {
-      const latestQuery = selectedDeviceId
-        ? `?deviceId=${encodeURIComponent(selectedDeviceId)}`
-        : '';
-
-      const historyQuery = selectedDeviceId
-        ? `?deviceId=${encodeURIComponent(selectedDeviceId)}&limit=200`
-        : '?limit=200';
-
-      const [latestResponse, historyResponse] = await Promise.all([
-        fetch(
-          `${API_BASE}/latest${latestQuery}`,
-          { cache: 'no-store' }
-        ),
-
-        fetch(
-          `${API_BASE}/history${historyQuery}`,
-          { cache: 'no-store' }
-        )
-      ]);
-
-      if (latestResponse.ok) {
-        const data = await latestResponse.json();
-
-        setTelemetry(data);
-      } else if (selectedDeviceId) {
-        setTelemetry({
-          ...emptyTelemetry,
-          deviceId: selectedDeviceId
-        });
-      }
-
-      if (historyResponse.ok) {
-        const data = await historyResponse.json();
-
-        setHistory(data);
-      }
-    } catch (err) {
-      console.error(err);
+      console.error('Dashboard fetch error:', err);
+      setError('Unable to fetch live telemetry right now.');
+    } finally {
+      setLoading(false);
     }
   }, [selectedDeviceId]);
 
   useEffect(() => {
-    loadSessions();
-
-    const interval = setInterval(
-      loadSessions,
-      5000
-    );
-
+    fetchData();
+    const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
-  }, [loadSessions]);
+  }, [fetchData]);
 
-  useEffect(() => {
-    loadTelemetry();
+  const activeSessionMap = useMemo(() => {
+    const map = {};
+    activeSessions.forEach((s) => {
+      map[s.deviceId] = s;
+    });
+    return map;
+  }, [activeSessions]);
 
-    const interval = setInterval(
-      loadTelemetry,
-      2000
-    );
+  const activeDeviceIds = useMemo(() => {
+    return activeSessions.map((s) => s.deviceId);
+  }, [activeSessions]);
 
-    return () => clearInterval(interval);
-  }, [loadTelemetry]);
+  const latestTelemetry = useMemo(() => {
+    if (!telemetryHistory.length) return null;
+    return telemetryHistory[telemetryHistory.length - 1];
+  }, [telemetryHistory]);
 
-  const getStatus = (predictionMins) => {
-    if (predictionMins === -1) {
+  const status = useMemo(() => {
+    if (!latestTelemetry) {
       return {
-        label: 'OPTIMAL COLD-CHAIN',
-        class: 'status-safe',
-        icon: false
+        label: 'NO SIGNAL',
+        colorClass: 'status-neutral',
+        icon: ShieldAlert,
       };
     }
 
-    if (predictionMins <= 20) {
-      return {
-        label: 'CRITICAL BREACH ALERT',
-        class: 'status-critical',
-        icon: true
-      };
-    }
+    const temp = latestTelemetry.vaccineTemp;
+    const isDoorOpen =
+      latestTelemetry.boxState &&
+      latestTelemetry.boxState.toLowerCase() === 'open';
 
-    if (predictionMins <= 60) {
+    if (temp < 2 || temp > 8 || isDoorOpen) {
       return {
-        label: 'WARNING - THERMAL DECAY',
-        class: 'status-warning',
-        icon: false
+        label: 'BREACH DETECTED',
+        colorClass: 'status-danger',
+        icon: AlertTriangle,
       };
     }
 
     return {
       label: 'OPTIMAL COLD-CHAIN',
-      class: 'status-safe',
-      icon: false
+      colorClass: 'status-success',
+      icon: CheckCircle,
     };
+  }, [latestTelemetry]);
+
+  const chartData = useMemo(() => {
+    return telemetryHistory.map((item) => ({
+      time: new Date(item.timestamp).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+      temperature: item.vaccineTemp,
+    }));
+  }, [telemetryHistory]);
+
+  const handleDeviceSelect = (e) => {
+    setSelectedDeviceId(e.target.value);
   };
 
-  const status = getStatus(
-    Number(telemetry.prediction)
-  );
+  const currentSession = activeSessionMap[selectedDeviceId];
 
   const openNewSession = () => {
-    setSessionError('');
-
-    setSessionForm({
-      deviceId: selectedDeviceId || '',
-      name: '',
-      number: ''
-    });
-
-    setShowSessionModal(true);
+    setNewDevice({ deviceId: '', name: '', phone: '' });
+    setIsModalOpen(true);
   };
 
-  const startSession = async (event) => {
-    event.preventDefault();
-
-    setSessionError('');
-    setSavingSession(true);
+  const handleCreateSession = async (e) => {
+    e.preventDefault();
+    if (!newDevice.deviceId || !newDevice.name || !newDevice.phone) return;
 
     try {
-      const response = await fetch(
-        `${API_BASE}/session/start`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(sessionForm)
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.message || 'Failed to start session'
-        );
-      }
-
-      setShowSessionModal(false);
-
-      setSelectedDeviceId(
-        data.deviceId
-      );
-
-      await loadSessions();
-      await loadTelemetry();
+      await createSession(newDevice);
+      setIsModalOpen(false);
+      setSelectedDeviceId(newDevice.deviceId);
+      fetchData();
     } catch (err) {
-      setSessionError(err.message);
-    } finally {
-      setSavingSession(false);
+      alert('Failed to start session');
     }
   };
 
-  const endSession = async (deviceId) => {
-    if (
-      !window.confirm(
-        `End the current session for ${deviceId}?`
-      )
-    ) {
-      return;
-    }
-
-    try {
-      const response = await fetch(
-        `${API_BASE}/session/end`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ deviceId })
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.message || 'Failed to end session'
-        );
-      }
-
-      await loadSessions();
-
-      if (selectedDeviceId === deviceId) {
-        setTelemetry({
-          ...emptyTelemetry,
-          deviceId
-        });
-      }
-    } catch (err) {
-      console.error(err);
-      alert(err.message);
-    }
+  const formatValue = (val, suffix = '') => {
+    if (val === undefined || val === null) return '--';
+    return `${val}${suffix}`;
   };
 
-  const selectedSession = activeSessions.find(
-    (session) =>
-      session.deviceId === selectedDeviceId
-  );
-
-  const chartData = [...history].reverse();
-
-  const hasLocation =
-    Number.isFinite(
-      Number(telemetry.latitude)
-    ) &&
-    Number.isFinite(
-      Number(telemetry.longitude)
-    ) &&
-    (
-      Number(telemetry.latitude) !== 0 ||
-      Number(telemetry.longitude) !== 0
-    );
+  const StatusIcon = status.icon;
 
   return (
     <div className="dashboard-container">
-
       <header className="dashboard-header">
-
         <div>
-          <h1 className="header-title">
-            ColdTrace Control Panel
-          </h1>
-
-          <p className="header-subtitle">
-            Distributed Vaccine Integrity Assurance
-            {selectedDeviceId
-              ? ` | Node ID: ${selectedDeviceId}`
-              : ''}
+          <h1 className="brand-title">ColdTrace Control Panel</h1>
+          <p className="brand-subtitle">
+            Distributed Vaccine Integrity Assurance | Node ID: {selectedDeviceId}
           </p>
         </div>
 
         <div className="header-actions">
-
-          <select
-            className="device-select"
-            value={selectedDeviceId}
-            onChange={(e) =>
-              setSelectedDeviceId(
-                e.target.value
-              )
-            }
-          >
-            <option value="">
-              All / Latest Device
-            </option>
-
-            {sessions.map((session) => (
-              <option
-                key={session._id}
-                value={session.deviceId}
-              >
-                {session.deviceId}
-                {session.active
-                  ? ` — ${session.name}`
-                  : ''}
+          <div className="device-select-box">
+            <Search size={16} className="select-icon" />
+            <select
+              value={selectedDeviceId}
+              onChange={handleDeviceSelect}
+              className="device-dropdown"
+            >
+              <option value={DEFAULT_DEVICE_ID}>
+                {DEFAULT_DEVICE_ID} (Default)
               </option>
-            ))}
-          </select>
 
-          <button
-            className="primary-button"
-            onClick={openNewSession}
-          >
-            <Plus size={18} />
+              {activeDeviceIds
+                .filter((id) => id !== DEFAULT_DEVICE_ID)
+                .map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <button className="primary-button" onClick={openNewSession}>
+            <Plus size={16} />
             Start New Session
           </button>
 
-          <div
-            className={`status-badge ${status.class}`}
-          >
-            {status.icon && (
-              <AlertTriangle
-                size={18}
-                className="pulse-icon"
-              />
-            )}
-
-            <span>
-              {status.label}
-            </span>
+          <div className={`status-pill ${status.colorClass}`}>
+            {StatusIcon && <StatusIcon size={16} />}
+            <span>{status.label}</span>
           </div>
-
         </div>
       </header>
 
       {activeSessions.length > 0 && (
         <div className="sessions-panel panel-card">
-
           <div className="sessions-heading">
-
             <div>
               <h3 className="panel-title">
                 <Radio size={18} />
                 Active Vaccine Sessions
               </h3>
-
               <p className="panel-subtitle">
                 Select a node to view its live telemetry.
               </p>
             </div>
 
-            <button
-              className="secondary-button"
-              onClick={openNewSession}
-            >
+            <button className="secondary-button" onClick={openNewSession}>
               <Plus size={16} />
               Add Node / Session
             </button>
-
           </div>
 
           <div className="session-grid">
-
             {activeSessions.map((session) => (
-
               <div
                 key={session._id}
                 className={`session-card ${
@@ -419,349 +233,159 @@ const Dashboard = () => {
                     ? 'session-card-selected'
                     : ''
                 }`}
-                onClick={() =>
-                  setSelectedDeviceId(
-                    session.deviceId
-                  )
-                }
+                onClick={() => setSelectedDeviceId(session.deviceId)}
               >
-
                 <div className="session-card-top">
-
                   <div>
-
-                    <div className="session-device">
-                      {session.deviceId}
-                    </div>
-
+                    <div className="session-device">{session.deviceId}</div>
                     <div className="session-name">
                       <User size={15} />
                       {session.name}
                     </div>
-
                   </div>
-
-                  <span className="active-dot">
-                    ACTIVE
-                  </span>
-
+                  <span className="active-dot">ACTIVE</span>
                 </div>
 
                 <div className="session-contact">
                   <Phone size={14} />
-                  {session.number}
+                  <span>{session.phone}</span>
                 </div>
-
-                <button
-                  className="end-session-button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    endSession(
-                      session.deviceId
-                    );
-                  }}
-                >
-                  <Square size={14} />
-                  End Session
-                </button>
-
               </div>
-
             ))}
-
           </div>
-
         </div>
       )}
 
-      <div className="selected-session-bar">
-
-        <div>
-          <span className="selected-label">
-            CURRENT NODE
-          </span>
-
-          <strong>
-            {selectedDeviceId ||
-              'No device selected'}
-          </strong>
-        </div>
-
-        {selectedSession && (
-          <div className="selected-handler">
-
-            <User size={16} />
-
-            <span>
-              {selectedSession.name}
-            </span>
-
-            <Phone size={16} />
-
-            <span>
-              {selectedSession.number}
-            </span>
-
+      {currentSession && (
+        <div className="active-node-banner panel-card">
+          <div className="node-banner-item">
+            <span className="node-banner-label">CURRENT NODE</span>
+            <span className="node-banner-value">{currentSession.deviceId}</span>
           </div>
-        )}
 
-      </div>
+          <div className="node-banner-item">
+            <span className="node-banner-label">HEALTH WORKER</span>
+            <span className="node-banner-value">{currentSession.name}</span>
+          </div>
 
-      <div className="stats-grid">
+          <div className="node-banner-item">
+            <span className="node-banner-label">CONTACT</span>
+            <span className="node-banner-value">{currentSession.phone}</span>
+          </div>
+        </div>
+      )}
 
-        <div
-          className={`stat-card ${
-            Number(telemetry.prediction) <= 20
-              ? 'alert-border'
-              : ''
-          }`}
-        >
-
-          <div className="card-header">
+      <div className="metrics-grid">
+        {/* Time to Breach Card (Updated Color Condition) */}
+        <div className="metric-card panel-card">
+          <div className="metric-header">
             <Clock size={18} />
             <span>Time to Breach</span>
           </div>
-
-          <div className="card-value red-accent">
-            {telemetry.prediction}
-            <span className="unit">
-              mins
-            </span>
+          <div
+            className="metric-value"
+            style={{
+              color: status.label === 'OPTIMAL COLD-CHAIN' ? '#000000' : '#ef4444',
+            }}
+          >
+            {formatValue(latestTelemetry?.timeToBreach, ' mins')}
           </div>
-
         </div>
 
-        <div className="stat-card">
-
-          <div className="card-header">
+        <div className="metric-card panel-card">
+          <div className="metric-header">
             <Thermometer size={18} />
             <span>Vaccine Temp</span>
           </div>
-
-          <div className="card-value">
-            {telemetry.temperature}
-            <span className="unit">
-              °C
-            </span>
+          <div className="metric-value">
+            {formatValue(latestTelemetry?.vaccineTemp, ' °C')}
           </div>
-
         </div>
 
-        <div className="stat-card">
-
-          <div className="card-header">
-
-            {telemetry.door === 'Open' ? (
-              <DoorOpen
-                size={18}
-                className="text-red"
-              />
-            ) : (
-              <DoorClosed size={18} />
-            )}
-
-            <span>
-              Box State
-            </span>
-
+        <div className="metric-card panel-card">
+          <div className="metric-header">
+            <Box size={18} />
+            <span>Box State</span>
           </div>
-
-          <div
-            className={`card-value ${
-              telemetry.door === 'Open'
-                ? 'text-red'
-                : ''
-            }`}
-          >
-            {telemetry.door}
+          <div className="metric-value">
+            {formatValue(latestTelemetry?.boxState)}
           </div>
-
         </div>
 
-        <div className="stat-card">
-
-          <div className="card-header">
-            <Battery size={18} />
+        <div className="metric-card panel-card">
+          <div className="metric-header">
+            <BatteryCharging size={18} />
             <span>Node Battery</span>
           </div>
-
-          <div className="card-value">
-            {telemetry.battery}
-            <span className="unit">
-              %
-            </span>
+          <div className="metric-value">
+            {formatValue(latestTelemetry?.nodeBattery, ' %')}
           </div>
-
         </div>
-
       </div>
 
-      <div className="content-grid">
-
+      <div className="grid-two-columns">
         <div className="panel-card">
-
-          <h3 className="panel-title">
-            Thermal Decay History
-          </h3>
+          <div className="panel-card-header">
+            <h2 className="panel-title">
+              <Activity size={18} />
+              Thermal Decay History
+            </h2>
+          </div>
 
           <div className="chart-wrapper">
-
-            <ResponsiveContainer
-              width="100%"
-              height={300}
-            >
-
+            <ResponsiveContainer width="100%" height={300}>
               <LineChart data={chartData}>
-
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  vertical={false}
-                  stroke="#e2e8f0"
-                />
-
-                <XAxis
-                  dataKey="timestamp"
-                  stroke="#64748b"
-                  fontSize={12}
-                  tickFormatter={(value) =>
-                    new Date(value)
-                      .toLocaleTimeString(
-                        [],
-                        {
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        }
-                      )
-                  }
-                />
-
-                <YAxis
-                  domain={[0, 12]}
-                  stroke="#64748b"
-                  fontSize={12}
-                  unit="°C"
-                />
-
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a324b" />
+                <XAxis dataKey="time" stroke="#a0aec0" />
+                <YAxis domain={[0, 12]} stroke="#a0aec0" />
                 <Tooltip
-                  labelFormatter={(value) =>
-                    new Date(value)
-                      .toLocaleString()
-                  }
+                  contentStyle={{
+                    backgroundColor: '#161b26',
+                    borderColor: '#2a324b',
+                    color: '#fff',
+                  }}
                 />
-
-                <ReferenceLine
-                  y={8}
-                  label="Max Threshold (8°C)"
-                  stroke="#ef4444"
-                  strokeDasharray="4 4"
-                />
-
                 <Line
                   type="monotone"
                   dataKey="temperature"
-                  stroke="#2563eb"
+                  stroke="#38bdf8"
                   strokeWidth={2}
-                  dot={{ r: 3 }}
-                  activeDot={{ r: 6 }}
+                  dot={false}
                 />
-
               </LineChart>
-
             </ResponsiveContainer>
-
           </div>
-
         </div>
 
         <div className="panel-card">
-
-          <h3 className="panel-title">
-            <MapPin size={18} />
-            Live GNSS Location
-          </h3>
-
-          <div className="map-container-wrapper">
-
-            <MapContainer
-              center={[
-                Number(telemetry.latitude) ||
-                  12.9716,
-
-                Number(telemetry.longitude) ||
-                  77.5946
-              ]}
-              zoom={13}
-              scrollWheelZoom={false}
-              style={{
-                height: '300px',
-                width: '100%',
-                borderRadius: '8px'
-              }}
-            >
-
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-
-              {hasLocation && (
-                <Marker
-                  position={[
-                    Number(
-                      telemetry.latitude
-                    ),
-                    Number(
-                      telemetry.longitude
-                    )
-                  ]}
-                  icon={customIcon}
-                >
-                  <Popup>
-
-                    <strong>
-                      {telemetry.deviceId ||
-                        'ColdTrace Node'}
-                    </strong>
-
-                    <br />
-
-                    Temp:
-                    {' '}
-                    {telemetry.temperature}
-                    °C
-
-                    <br />
-
-                    Breach Est:
-                    {' '}
-                    {telemetry.prediction}
-                    {' '}
-                    mins
-
-                  </Popup>
-                </Marker>
-              )}
-
-            </MapContainer>
-
+          <div className="panel-card-header">
+            <h2 className="panel-title">
+              <MapPin size={18} />
+              Live GNSS Location
+            </h2>
           </div>
 
+          <div className="map-wrapper">
+            <LeafletMap
+              latitude={latestTelemetry?.latitude || 0}
+              longitude={latestTelemetry?.longitude || 0}
+              deviceName={selectedDeviceId}
+            />
+          </div>
         </div>
-
       </div>
 
-      <div className="panel-card table-panel">
+      <div className="panel-card table-section">
+        <div className="panel-card-header">
+          <h2 className="panel-title">
+            <RefreshCw size={18} />
+            Recent Telemetry Audit Log
+          </h2>
+        </div>
 
-        <h3 className="panel-title">
-          Recent Telemetry Audit Log
-        </h3>
-
-        <div className="table-responsive">
-
-          <table className="audit-table">
-
+        <div className="table-wrapper">
+          <table className="telemetry-table">
             <thead>
-
               <tr>
                 <th>Device</th>
                 <th>Time</th>
@@ -770,231 +394,102 @@ const Dashboard = () => {
                 <th>Est. Breach</th>
                 <th>Location</th>
               </tr>
-
             </thead>
-
             <tbody>
-
-              {history.map((row) => (
-
-                <tr key={row._id}>
-
-                  <td>
-                    {row.deviceId}
-                  </td>
-
-                  <td>
-                    {new Date(
-                      row.timestamp
-                    ).toLocaleTimeString(
-                      [],
-                      {
+              {telemetryHistory
+                .slice()
+                .reverse()
+                .map((row, idx) => (
+                  <tr key={row._id || idx}>
+                    <td>{row.deviceId || selectedDeviceId}</td>
+                    <td>
+                      {new Date(row.timestamp).toLocaleTimeString([], {
                         hour: '2-digit',
-                        minute: '2-digit'
-                      }
-                    )}
-                  </td>
-
-                  <td>
-                    {row.temperature}°C
-                  </td>
-
-                  <td>
-
-                    <span
-                      className={`badge ${
-                        row.door === 'Open'
-                          ? 'badge-danger'
-                          : 'badge-success'
-                      }`}
-                    >
-                      {row.door}
-                    </span>
-
-                  </td>
-
-                  <td>
-                    {row.prediction} mins
-                  </td>
-
-                  <td>
-                    {Number(
-                      row.latitude
-                    ).toFixed(4)}
-                    ,{' '}
-                    {Number(
-                      row.longitude
-                    ).toFixed(4)}
-                  </td>
-
-                </tr>
-
-              ))}
-
+                        minute: '2-digit',
+                      })}
+                    </td>
+                    <td>{row.vaccineTemp} °C</td>
+                    <td>{row.boxState}</td>
+                    <td>{row.timeToBreach} mins</td>
+                    <td>
+                      {row.latitude?.toFixed(4)}, {row.longitude?.toFixed(4)}
+                    </td>
+                  </tr>
+                ))}
             </tbody>
-
           </table>
-
         </div>
-
       </div>
 
-      {showSessionModal && (
-
-        <div
-          className="modal-backdrop"
-          onMouseDown={() =>
-            setShowSessionModal(false)
-          }
-        >
-
-          <div
-            className="session-modal"
-            onMouseDown={(e) =>
-              e.stopPropagation()
-            }
-          >
-
+      {isModalOpen && (
+        <div className="modal-backdrop">
+          <div className="modal-card">
             <div className="modal-header">
-
-              <div>
-
-                <h2>
-                  Start New Vaccine Session
-                </h2>
-
-                <p>
-                  Assign a carrier to a specific
-                  ColdTrace device.
-                </p>
-
-              </div>
-
+              <h3>Start New Session</h3>
               <button
                 className="icon-button"
-                onClick={() =>
-                  setShowSessionModal(false)
-                }
-                aria-label="Close"
+                onClick={() => setIsModalOpen(false)}
               >
-                <X size={20} />
+                <X size={18} />
               </button>
-
             </div>
 
-            <form onSubmit={startSession}>
-
+            <form onSubmit={handleCreateSession} className="modal-form">
               <label>
-
                 Device ID
-
                 <input
-                  value={
-                    sessionForm.deviceId
-                  }
+                  type="text"
+                  placeholder="e.g. device002"
+                  value={newDevice.deviceId}
                   onChange={(e) =>
-                    setSessionForm({
-                      ...sessionForm,
-                      deviceId:
-                        e.target.value.trim()
-                    })
+                    setNewDevice({ ...newDevice, deviceId: e.target.value })
                   }
-                  placeholder="device001"
                   required
                 />
-
-                <span className="field-help">
-                  Must match the NODE_ID programmed
-                  into the nRF52840.
-                </span>
-
               </label>
 
               <label>
-
-                Carrier Name
-
+                Health Worker Name
                 <input
-                  value={
-                    sessionForm.name
-                  }
+                  type="text"
+                  placeholder="e.g. Rahul Sharma"
+                  value={newDevice.name}
                   onChange={(e) =>
-                    setSessionForm({
-                      ...sessionForm,
-                      name: e.target.value
-                    })
+                    setNewDevice({ ...newDevice, name: e.target.value })
                   }
-                  placeholder="Person carrying the vaccine"
                   required
                 />
-
               </label>
 
               <label>
-
-                Contact Number
-
+                Phone Number
                 <input
-                  value={
-                    sessionForm.number
-                  }
+                  type="text"
+                  placeholder="e.g. 9876543210"
+                  value={newDevice.phone}
                   onChange={(e) =>
-                    setSessionForm({
-                      ...sessionForm,
-                      number: e.target.value
-                    })
+                    setNewDevice({ ...newDevice, phone: e.target.value })
                   }
-                  placeholder="9876543210"
-                  inputMode="tel"
                   required
                 />
-
               </label>
-
-              {sessionError && (
-                <div className="form-error">
-                  {sessionError}
-                </div>
-              )}
 
               <div className="modal-actions">
-
                 <button
                   type="button"
                   className="secondary-button"
-                  onClick={() =>
-                    setShowSessionModal(false)
-                  }
+                  onClick={() => setIsModalOpen(false)}
                 >
                   Cancel
                 </button>
-
-                <button
-                  type="submit"
-                  className="primary-button"
-                  disabled={savingSession}
-                >
-
-                  <Radio size={17} />
-
-                  {savingSession
-                    ? 'Starting...'
-                    : 'Start Session'}
-
+                <button type="submit" className="primary-button">
+                  Save Session
                 </button>
-
               </div>
-
             </form>
-
           </div>
-
         </div>
-
       )}
-
     </div>
   );
-};
-
-export default Dashboard;
+}
