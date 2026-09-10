@@ -534,7 +534,7 @@ const Dashboard = () => {
                   : Number(telemetry.prediction) > 20 &&
                     Number(telemetry.prediction) <= 60
                   ? '#f59e0b'
-                  : '#000000'
+                  : '#10b981'
             }}
           >
             {telemetry.prediction}
